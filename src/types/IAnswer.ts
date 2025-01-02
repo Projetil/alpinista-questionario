@@ -7,6 +7,7 @@ export interface IAnswer {
 
 export interface ICreateAnswer {
   questionId: number;
+  questionaryId: number;
   questionaryRespondentId: number;
   value: string;
 }

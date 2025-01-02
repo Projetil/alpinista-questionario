@@ -72,6 +72,7 @@ export default function Home() {
             questionId: questions?.questions[index].id as number,
             questionaryRespondentId: Number(respondentId),
             value: resUrl.result,
+            questionaryId: Number(id),
           };
 
           await AnswerService.Post(answers);
@@ -84,6 +85,7 @@ export default function Home() {
           questionId: questions?.questions[index].id as number,
           questionaryRespondentId: Number(respondentId),
           value: `${x.answer}`,
+          questionaryId: Number(id),
         };
         try {
           await AnswerService.Post(answers);
