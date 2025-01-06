@@ -37,7 +37,7 @@ const QuestionnaryService = {
   },
   GetById: async (id: number) => {
     try {
-      const res = await api.get(`${endpoint}/${id}`);
+      const res = await api.get(`${endpoint}/${id}/WithAnswers`);
       return res.data as IQuestionnary;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {
@@ -70,6 +70,22 @@ const QuestionnaryService = {
   Put: async (company: Partial<ICreateQuestionnary>, id: number) => {
     try {
       const res = await api.put(`${endpoint}/${id}`, company);
+      return res.data as IQuestionnary;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } catch (error: any) {
+      switch (error.statusCode) {
+        case HttpStatusCode.BadRequest:
+          throw new ValidationError(error.body.erros);
+        case HttpStatusCode.NotFound:
+          throw new NotFoundError();
+        default:
+          throw new UnexpectedError();
+      }
+    }
+  },
+  PutComplete: async (id: number) => {
+    try {
+      const res = await api.put(`${endpoint}/Complete/${id}`);
       return res.data as IQuestionnary;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {

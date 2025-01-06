@@ -44,6 +44,22 @@ const AnswerService = {
       }
     }
   },
+  Put: async (company: Partial<ICreateAnswer>, id: number) => {
+    try {
+      const res = await api.put(`${endpoint}/${id}`, company);
+      return res.data as IAnswer;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } catch (error: any) {
+      switch (error.statusCode) {
+        case HttpStatusCode.BadRequest:
+          throw new ValidationError(error.body.erros);
+        case HttpStatusCode.NotFound:
+          throw new NotFoundError();
+        default:
+          throw new UnexpectedError();
+      }
+    }
+  },
 };
 
 export default AnswerService;

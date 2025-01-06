@@ -4,7 +4,7 @@ import { Textarea } from "@/components/ui/textarea";
 import QuestionnaryService from "@/services/QuestionnaryService";
 import { IQuestionnary } from "@/types/IQuestionnary";
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -13,6 +13,7 @@ import AnswerService from "@/services/AnswerService";
 import { Pagination } from "@/components/Pagination";
 import ModalSent from "@/components/ModalSent";
 import ModalToken from "@/components/ModalToken";
+import { toast } from "react-toastify";
 
 const schema = z.object({
   answers: z.array(
@@ -37,9 +38,10 @@ export default function Home() {
   const [openToken, setOpenToken] = useState(false);
   const [questions, setQuestions] = useState<IQuestionnary>();
   const [respondentId, setRespondentId] = useState<number>();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const {
     control,
-    handleSubmit,
+    reset,
     formState: { errors },
   } = useForm<FormSchema>({
     resolver: zodResolver(schema),
@@ -54,53 +56,119 @@ export default function Home() {
     }
   };
 
+  const onSubmit = async () => {
+    try {
+      await QuestionnaryService.PutComplete(Number(id));
+      setOpenSent(true);
+    } catch (error) {
+      console.log(error);
+    }
+  };
+
+  const onSubmitAnswer = async (
+    index: number,
+    value: string | number | boolean | File | undefined
+  ) => {
+    if (!questions) return;
+
+    const question = questions.questions[index];
+    const existingAnswer = question.answer?.[0];
+    const payload: ICreateAnswer = {
+      questionId: question.id,
+      questionaryRespondentId: respondentId!,
+      value: value?.toString() || "",
+      questionaryId: Number(id),
+    };
+
+    if (question.answerType === 2 && value instanceof File) {
+      try {
+        const resUrl = await AnswerService.PostFile(value, question.id);
+        payload.value = resUrl.result;
+      } catch (error) {
+        console.log("Error uploading file", error);
+        return;
+      }
+    }
+
+    try {
+      if (existingAnswer) {
+        await AnswerService.Put(payload, existingAnswer.id);
+        toast.success("Resposta atualizada com sucesso");
+      } else {
+        await AnswerService.Post(payload);
+        toast.success("Resposta enviada com sucesso");
+      }
+    } catch (error) {
+      console.log("Error submitting or updating answer", error);
+    }
+  };
+
   useEffect(() => {
     getQuestions();
     setOpenToken(true);
   }, []);
 
-  const onSubmit = async (data: FormSchema) => {
-    data.answers.map(async (x, index) => {
-      if (questions?.questions[index].answerType === 2) {
-        try {
-          const resUrl = await AnswerService.PostFile(
-            x.answer as File,
-            questions?.questions[index].id as number
-          );
+  useEffect(() => {
+    const fetchFilesAndReset = async () => {
+      if (!questions) return;
 
-          const answers: ICreateAnswer = {
-            questionId: questions?.questions[index].id as number,
-            questionaryRespondentId: Number(respondentId),
-            value: resUrl.result,
-            questionaryId: Number(id),
+      const answers = await Promise.all(
+        questions.questions.map(async (q) => {
+          if (q.answerType === 2 && q.answer[0]?.value) {
+            const response = await fetch(q.answer[0]?.value);
+            const blob = await response.blob();
+            const fileName = q.answer[0]?.value.split("/").pop() || "file";
+            const file = new File([blob], fileName, { type: blob.type });
+            if (fileInputRef.current) {
+              const dataTransfer = new DataTransfer();
+              dataTransfer.items.add(file);
+              fileInputRef.current.files = dataTransfer.files;
+            }
+
+            return { answer: file };
+          }
+
+          return {
+            answer:
+              q.answerType === 1
+                ? q.answer[0]?.value.toString()
+                : q.answerType === 3
+                ? Number(q.answer[0]?.value)
+                : q.answerType === 4
+                ? q.options?.find((x) => q.answer[0]?.value === x)
+                : q.answer[0]?.value,
           };
+        })
+      );
 
-          await AnswerService.Post(answers);
-          setOpenSent(true);
-        } catch (error) {
-          console.log(error);
-        }
-      } else {
-        const answers: ICreateAnswer = {
-          questionId: questions?.questions[index].id as number,
-          questionaryRespondentId: Number(respondentId),
-          value: `${x.answer}`,
-          questionaryId: Number(id),
-        };
-        try {
-          await AnswerService.Post(answers);
-          setOpenSent(true);
-        } catch (error) {
-          console.log(error);
-        }
-      }
+      reset({ answers });
+    };
+
+    fetchFilesAndReset();
+  }, [questions, reset]);
+
+  /*   useEffect(() => {
+    reset({
+      answers:
+        questions?.questions.map((q) => ({
+          answer:
+            q.answerType === 1
+              ? q.answer[0]?.value.toString()
+              : q.answerType === 2
+              ? new File([], q.answer[0]?.value)
+              : q.answerType === 3
+              ? Number(q.answer[0]?.value)
+              : q.answerType === 4
+              ? q.options?.find((x) => q.answer[0]?.value === x)
+              : q.answer[0]?.value,
+        })) || [],
     });
-  };
+  }, [questions]); */
 
   return (
     <div className="flex flex-col items-center justify-start min-h-screen py-2 w-full bg-[#F8F7F9]">
       <main className="flex flex-col items-center justify-start px-2 md:px-20 text-center max-w-[1200px] w-full mt-10">
-        <form className="w-full" onSubmit={handleSubmit(onSubmit)}>
+        <form className="w-full">
           <h1 className="p-2 bg-[#FFFFFF] text-start rounded-xl w-full font-bold text-[#636267] text-3xl">
             {questions?.title}
           </h1>
@@ -125,6 +193,10 @@ export default function Home() {
                             ? field.value
                             : ""
                         }
+                        onBlur={(e) => {
+                          field.onBlur();
+                          onSubmitAnswer(index, e.target.value);
+                        }}
                         placeholder="Resposta de texto"
                         className="w-full bg-transparent mt-4"
                       />
@@ -139,16 +211,20 @@ export default function Home() {
                       <Input
                         onBlur={field.onBlur}
                         name={field.name}
-                        ref={field.ref}
+                        ref={fileInputRef}
                         type="file"
                         className="mt-4 bg-transparent"
-                        onChange={(e) => field.onChange(e.target.files?.[0])}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          field.onChange(file);
+                          onSubmitAnswer(index, file);
+                        }}
                       />
                     )}
                   />
                 )}
                 {x.answerType === 3 && (
-                  <div className="mt-4 flex gap-5">
+                  <div className="mt-4 flex flex-col gap-5">
                     {[1, 2, 3, 4, 5].map((num) => (
                       <label
                         key={num}
@@ -163,11 +239,18 @@ export default function Home() {
                               type="radio"
                               value={num}
                               checked={field.value === num}
-                              onChange={() => field.onChange(num)}
+                              onChange={() => {
+                                field.onChange(num);
+                                onSubmitAnswer(index, num);
+                              }}
                             />
                           )}
                         />
-                        {num}
+                        {num === 1 && "1 - Nada confiante"}
+                        {num === 2 && "2 - Pouco confiante"}
+                        {num === 3 && "3 - Neutro"}
+                        {num === 4 && "4 - Confiante"}
+                        {num === 5 && "5 - Muito confiante"}
                       </label>
                     ))}
                   </div>
@@ -190,6 +273,12 @@ export default function Home() {
                                 ? ""
                                 : (field.value as string | number | undefined)
                             }
+                            checked={field.value === option}
+                            onChange={(e) => {
+                              const isChecked = e.target.checked;
+                              field.onChange(isChecked ? option : "");
+                              onSubmitAnswer(index, isChecked ? option : "");
+                            }}
                             type="checkbox"
                             className="bg-transparent w-5 h-5 rounded-full"
                           />
@@ -210,7 +299,10 @@ export default function Home() {
           </div>
           <div className="w-full flex justify-end mt-4">
             <button
-              type="submit"
+              type="button"
+              onClick={() => {
+                onSubmit();
+              }}
               className="mt-4 p-2 bg-blue-500 text-white rounded"
             >
               Enviar
