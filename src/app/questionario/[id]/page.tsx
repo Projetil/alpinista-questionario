@@ -5,7 +5,7 @@ import QuestionnaryService from "@/services/QuestionnaryService";
 import { IQuestionnary } from "@/types/IQuestionnary";
 import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { useForm, Controller } from "react-hook-form";
+import { useForm, Controller, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ICreateAnswer } from "@/types/IAnswer";
@@ -19,14 +19,10 @@ const schema = z.object({
   answers: z.array(
     z.object({
       answerType: z.number().optional(),
-      answer: z.union(
-        [z.string(), z.number(), z.boolean(), z.instanceof(File)],
-        {
-          message: "Todas as respostas são obrigatórias",
-        }
-      ),
-    }),
-    { message: "Todas as respostas são obrigatórias" }
+      answer: z
+        .union([z.string(), z.number(), z.boolean(), z.instanceof(File)])
+        .optional(),
+    })
   ),
 });
 
@@ -42,10 +38,20 @@ export default function Home() {
   const {
     control,
     reset,
+    handleSubmit,
     formState: { errors },
   } = useForm<FormSchema>({
     resolver: zodResolver(schema),
   });
+
+  const watchAnswers = useWatch({
+    control,
+    name: "answers",
+  });
+
+  const isFormComplete = watchAnswers?.every(
+    (answer) => answer.answer !== undefined && answer.answer !== ""
+  );
 
   const getQuestions = async () => {
     try {
@@ -65,41 +71,38 @@ export default function Home() {
     }
   };
 
-  const onSubmitAnswer = async (
-    index: number,
-    value: string | number | boolean | File | undefined
-  ) => {
+  const onSubmitAnswer = async (data: FormSchema) => {
     if (!questions) return;
+    const payloads = data.answers.map((answer, index) => {
+      const question = questions.questions[index];
 
-    const question = questions.questions[index];
-    const existingAnswer = question.answer?.[0];
-    const payload: ICreateAnswer = {
-      questionId: question.id,
-      questionaryRespondentId: respondentId!,
-      value: value?.toString() || "",
-      questionaryId: Number(id),
-    };
+      const payload: ICreateAnswer = {
+        questionId: question.id,
+        questionaryRespondentId: respondentId!,
+        value: answer.answer?.toString() || "",
+        questionaryId: Number(id),
+      };
 
-    if (question.answerType === 2 && value instanceof File) {
-      try {
-        const resUrl = await AnswerService.PostFile(value, question.id);
-        payload.value = resUrl.result;
-      } catch (error) {
-        console.log("Error uploading file", error);
-        return;
+      if (question.answerType === 2 && answer.answer instanceof File) {
+        return AnswerService.PostFile(answer.answer, question.id).then(
+          (resUrl) => {
+            payload.value = resUrl.result;
+            return payload;
+          }
+        );
       }
-    }
+
+      return Promise.resolve(payload);
+    });
 
     try {
-      if (existingAnswer) {
-        await AnswerService.Put(payload, existingAnswer.id);
-        toast.success("Resposta atualizada com sucesso");
-      } else {
-        await AnswerService.Post(payload);
-        toast.success("Resposta enviada com sucesso");
-      }
+      const resolvedPayloads = await Promise.all(payloads);
+      await Promise.all(
+        resolvedPayloads.map((payload) => AnswerService.Post(payload))
+      );
+      toast.success("Respostas salvas com sucesso");
     } catch (error) {
-      console.log("Error submitting or updating answer", error);
+      console.log("Error submitting or updating answers", error);
     }
   };
 
@@ -131,12 +134,14 @@ export default function Home() {
           return {
             answer:
               q.answerType === 1
-                ? q.answer[0]?.value.toString()
+                ? q.answer[q.answer.length - 1]?.value.toString()
                 : q.answerType === 3
-                ? Number(q.answer[0]?.value)
+                ? Number(q.answer[q.answer.length - 1]?.value)
                 : q.answerType === 4
-                ? q.options?.find((x) => q.answer[0]?.value === x)
-                : q.answer[0]?.value,
+                ? q.options?.find(
+                    (x) => q.answer[q.answer.length - 1]?.value === x
+                  )
+                : q.answer[q.answer.length - 1]?.value,
           };
         })
       );
@@ -146,24 +151,6 @@ export default function Home() {
 
     fetchFilesAndReset();
   }, [questions, reset]);
-
-  /*   useEffect(() => {
-    reset({
-      answers:
-        questions?.questions.map((q) => ({
-          answer:
-            q.answerType === 1
-              ? q.answer[0]?.value.toString()
-              : q.answerType === 2
-              ? new File([], q.answer[0]?.value)
-              : q.answerType === 3
-              ? Number(q.answer[0]?.value)
-              : q.answerType === 4
-              ? q.options?.find((x) => q.answer[0]?.value === x)
-              : q.answer[0]?.value,
-        })) || [],
-    });
-  }, [questions]); */
 
   return (
     <div className="flex flex-col items-center justify-start min-h-screen py-2 w-full bg-[#F8F7F9]">
@@ -193,36 +180,35 @@ export default function Home() {
                             ? field.value
                             : ""
                         }
-                        onBlur={(e) => {
-                          field.onBlur();
-                          onSubmitAnswer(index, e.target.value);
-                        }}
                         placeholder="Resposta de texto"
                         className="w-full bg-transparent mt-4"
                       />
                     )}
                   />
                 )}
-                {x.answerType === 2 && (
-                  <Controller
-                    name={`answers.${index}.answer`}
-                    control={control}
-                    render={({ field }) => (
-                      <Input
-                        onBlur={field.onBlur}
-                        name={field.name}
-                        ref={fileInputRef}
-                        type="file"
-                        className="mt-4 bg-transparent"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          field.onChange(file);
-                          onSubmitAnswer(index, file);
-                        }}
+                {x.answerType === 2 &&
+                  Array.from({ length: x.maxFiles ?? 0 }).map(
+                    (_, fileIndex) => (
+                      <Controller
+                        key={fileIndex}
+                        name={`answers.${index}.answer`}
+                        control={control}
+                        render={({ field }) => (
+                          <Input
+                            onBlur={field.onBlur}
+                            name={field.name}
+                            ref={fileInputRef}
+                            type="file"
+                            className="mt-4 bg-transparent"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              field.onChange(file);
+                            }}
+                          />
+                        )}
                       />
-                    )}
-                  />
-                )}
+                    )
+                  )}
                 {x.answerType === 3 && (
                   <div className="mt-4 flex flex-col gap-5">
                     {[1, 2, 3, 4, 5].map((num) => (
@@ -241,7 +227,6 @@ export default function Home() {
                               checked={field.value === num}
                               onChange={() => {
                                 field.onChange(num);
-                                onSubmitAnswer(index, num);
                               }}
                             />
                           )}
@@ -277,7 +262,6 @@ export default function Home() {
                             onChange={(e) => {
                               const isChecked = e.target.checked;
                               field.onChange(isChecked ? option : "");
-                              onSubmitAnswer(index, isChecked ? option : "");
                             }}
                             type="checkbox"
                             className="bg-transparent w-5 h-5 rounded-full"
@@ -297,15 +281,23 @@ export default function Home() {
               </div>
             ))}
           </div>
+          <button
+            type="button"
+            onClick={handleSubmit(onSubmitAnswer)}
+            className="fixed bottom-10 right-10 p-2 bg-blue-800 text-white rounded shadow-lg"
+          >
+            Salvar Respostas
+          </button>
           <div className="w-full flex justify-end mt-4">
             <button
+              disabled={!isFormComplete}
               type="button"
               onClick={() => {
                 onSubmit();
               }}
               className="mt-4 p-2 bg-blue-500 text-white rounded"
             >
-              Enviar
+              Enviar formulário
             </button>
           </div>
         </form>
