@@ -20,7 +20,7 @@ export interface IQuestion {
   id: number;
   questionaryId: number;
   title: string;
-  maxFiles?: string;
+  maxFiles?: number;
   maxSize?: string;
   options?: string[];
   answerType: number;
