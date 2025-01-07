@@ -100,7 +100,7 @@ export default function Home() {
       await Promise.all(
         resolvedPayloads.map((payload) => AnswerService.Post(payload))
       );
-      toast.success("Respostas enviadas com sucesso");
+      toast.success("Respostas salvas com sucesso");
     } catch (error) {
       console.log("Error submitting or updating answers", error);
     }
@@ -284,7 +284,7 @@ export default function Home() {
           <button
             type="button"
             onClick={handleSubmit(onSubmitAnswer)}
-            className="fixed bottom-10 left-10 p-2 bg-blue-800 text-white rounded shadow-lg"
+            className="fixed bottom-10 right-10 p-2 bg-blue-800 text-white rounded shadow-lg"
           >
             Salvar Respostas
           </button>
