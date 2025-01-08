@@ -19,9 +19,7 @@ const schema = z.object({
   answers: z.array(
     z.object({
       answerType: z.number().optional(),
-      answer: z
-        .union([z.string(), z.number(), z.boolean(), z.instanceof(File)])
-        .optional(),
+      answer: z.any().optional(),
     })
   ),
 });
@@ -35,12 +33,7 @@ export default function Home() {
   const [questions, setQuestions] = useState<IQuestionnary>();
   const [respondentId, setRespondentId] = useState<number>();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const {
-    control,
-    reset,
-    handleSubmit,
-    formState: { errors },
-  } = useForm<FormSchema>({
+  const { control, reset, handleSubmit } = useForm<FormSchema>({
     resolver: zodResolver(schema),
   });
 
@@ -76,10 +69,22 @@ export default function Home() {
     const payloads = data.answers.map((answer, index) => {
       const question = questions.questions[index];
 
+      if (
+        answer.answer === undefined ||
+        answer.answer === "" ||
+        Number.isNaN(answer.answer)
+      )
+        return;
+      if (question.answer.some((a) => a.value === answer.answer.toString()))
+        return;
+
+      console.log("nova resposta" + answer.answer);
+      console.log("velha resposta" + questions.questions.map((x) => x.answer));
+
       const payload: ICreateAnswer = {
         questionId: question.id,
         questionaryRespondentId: respondentId!,
-        value: answer.answer?.toString() || "",
+        value: answer.answer.toString(),
         questionaryId: Number(id),
       };
 
@@ -91,14 +96,15 @@ export default function Home() {
           }
         );
       }
-
       return Promise.resolve(payload);
     });
 
     try {
       const resolvedPayloads = await Promise.all(payloads);
       await Promise.all(
-        resolvedPayloads.map((payload) => AnswerService.Post(payload))
+        resolvedPayloads.map((payload) => {
+          if (payload) /* AnswerService.Post(payload); */ console.log(payload);
+        })
       );
       toast.success("Respostas salvas com sucesso");
     } catch (error) {
@@ -273,11 +279,6 @@ export default function Home() {
                       </label>
                     </div>
                   ))}
-                {errors.answers?.[index]?.answer && (
-                  <span className="text-red-500 text-sm">
-                    {errors.answers?.[index]?.answer.message}
-                  </span>
-                )}
               </div>
             ))}
           </div>
