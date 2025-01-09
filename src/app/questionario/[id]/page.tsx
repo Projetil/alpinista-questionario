@@ -103,7 +103,7 @@ export default function Home() {
       const resolvedPayloads = await Promise.all(payloads);
       await Promise.all(
         resolvedPayloads.map((payload) => {
-          if (payload) /* AnswerService.Post(payload); */ console.log(payload);
+          if (payload) AnswerService.Post(payload);
         })
       );
       toast.success("Respostas salvas com sucesso");
